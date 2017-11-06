@@ -1,11 +1,14 @@
 module Main exposing (..)
 
+import Curve
 import Html exposing (Html)
 import Json.Decode as Decode
 import Mouse exposing (Position)
+import SubPath
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Svg.Events exposing (on)
+import Vector2 exposing (Vec2)
 
 
 type alias Model =
@@ -38,7 +41,17 @@ type Msg
 
 c : Int
 c =
-    4
+    h // 150
+
+
+xscale : Float
+xscale =
+    toFloat c * 0.2
+
+
+yscale : Float
+yscale =
+    toFloat c * 0.3
 
 
 h : Int
@@ -61,6 +74,79 @@ model =
     }
 
 
+pathPoints : { a | turnsign : Float, dist : Float, hst : Float, lsf : Float, airspeed : Float } -> List (Vec2 Float)
+pathPoints { turnsign, dist, hst, lsf, airspeed } =
+    let
+        fadestart =
+            0.4 + (1.0 - airspeed ^ 2) * 0.3
+
+        impact =
+            (1.0 - airspeed) / 5
+
+        turnend =
+            0.8 - airspeed ^ 2 * 0.36
+
+        ht =
+            yscale * dist
+
+        deltav =
+            yscale / ht
+
+        -- calculate effective HST and LSF
+        op =
+            if airspeed > 0.8 then
+                ((airspeed - 0.8) / 0.4) ^ 3
+            else
+                1
+
+        -- emphasize high-speed turn on sub-350ft discs
+        dc =
+            Basics.max 0 (350 - dist) / 10
+
+        ehst =
+            (hst - op * dc) * airspeed ^ 4 / 14000
+
+        elsf =
+            lsf / (airspeed ^ 2) / 4000
+
+        loop { airspeed, vx, vy, x, y, points } =
+            if airspeed <= impact then
+                points
+            else
+                let
+                    newY =
+                        y + vy * yscale
+
+                    newX =
+                        x + vx * xscale
+
+                    newAirspeed =
+                        airspeed - deltav
+
+                    vx_ =
+                        if newAirspeed > turnend then
+                            vx - turnsign * ehst * (turnend / newAirspeed)
+                        else
+                            vx
+
+                    newVx =
+                        if newAirspeed < fadestart then
+                            vx_ - turnsign * elsf * (fadestart - newAirspeed) / fadestart
+                        else
+                            vx_
+                in
+                loop { airspeed = newAirspeed, vx = newVx, vy = vy, x = newX, y = newY, points = ( x, y ) :: points }
+    in
+    loop
+        { airspeed = airspeed
+        , x = toFloat w / 2
+        , y = toFloat h
+        , vx = 0.0
+        , vy = -1.0
+        , points = []
+        }
+
+
 posToString : Position -> String
 posToString { x, y } =
     toString x ++ " " ++ toString y
@@ -68,6 +154,10 @@ posToString { x, y } =
 
 view : Model -> Html Msg
 view model =
+    let
+        points =
+            pathPoints { airspeed = 0.8, dist = 435, hst = -1, lsf = 73, turnsign = 1 }
+    in
     svg
         [ viewBox ("0 0 " ++ toString w ++ " " ++ toString h)
         , width (toString w)
@@ -90,27 +180,34 @@ view model =
         , distanceLine 125
         , distanceLine 150
         , hairline <| "M" ++ toString (w // 2) ++ " 0 V" ++ toString h
-        , bezierControl
-            { position = model.startPosition, control = model.startControl }
-            StartControl
-        , bezierControl { position = model.endPosition, control = model.endControl }
-            EndControl
-        , Svg.path
-            [ d <|
-                "M"
-                    ++ posToString model.startPosition
-                    ++ "C"
-                    ++ posToString model.startControl
-                    ++ ","
-                    ++ posToString model.endControl
-                    ++ ","
-                    ++ posToString model.endPosition
-            , fill "none"
-            , stroke "blue"
+
+        -- , bezierControl
+        --     { position = model.startPosition, control = model.startControl }
+        --     StartControl
+        -- , bezierControl { position = model.endPosition, control = model.endControl }
+        --     EndControl
+        -- , Svg.path
+        --     [ d <|
+        --         "M"
+        --             ++ posToString model.startPosition
+        --             ++ "C"
+        --             ++ posToString model.startControl
+        --             ++ ","
+        --             ++ posToString model.endControl
+        --             ++ ","
+        --             ++ posToString model.endPosition
+        --     , fill "none"
+        --     , stroke "blue"
+        --     , strokeWidth "1"
+        --     ]
+        --     []
+        , SubPath.element (Curve.catmullRom 0.0 points)
+            [ fill "none"
+            , stroke "red"
             , strokeWidth "1"
             ]
-            []
-        , dot { color = "blue", position = model.endPosition } EndPosition
+
+        -- , dot { color = "blue", position = model.endPosition } EndPosition
         ]
 
 
