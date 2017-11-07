@@ -23,6 +23,8 @@ type alias Model =
 
 type Msg
     = AirspeedChanged Float
+    | HstChanged Float
+    | LsfChanged Float
 
 
 c : Int
@@ -164,16 +166,60 @@ view model =
                 Nothing ->
                     text ""
             ]
+        , sliderForAirspeed model.airspeed
+        , sliderForHst model.hst
+        , sliderForLsf model.lsf
+        ]
+
+
+sliderForAirspeed : Float -> Html Msg
+sliderForAirspeed current =
+    Html.div []
+        [ Html.text "Airspeed"
         , Html.input
             [ Html.Attributes.type_ "range"
             , Html.Attributes.min "0.5"
             , Html.Attributes.max "1.2"
             , Html.Attributes.step "0.01"
-            , Html.Attributes.value (toString model.airspeed)
+            , Html.Attributes.value (toString current)
             , onNumberInput AirspeedChanged
             ]
             []
-        , Html.text (toString (round (100 * model.airspeed)) ++ "%")
+        , Html.text (toString (round (100 * current)) ++ "%")
+        ]
+
+
+sliderForHst : Float -> Html Msg
+sliderForHst current =
+    Html.div []
+        [ Html.text "High speed Turn"
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "-100"
+            , Html.Attributes.max "100"
+            , Html.Attributes.step "1"
+            , Html.Attributes.value (toString current)
+            , onNumberInput HstChanged
+            ]
+            []
+        , Html.text (toString (round current) ++ "%")
+        ]
+
+
+sliderForLsf : Float -> Html Msg
+sliderForLsf current =
+    Html.div []
+        [ Html.text "Low speed Fade"
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "0"
+            , Html.Attributes.max "100"
+            , Html.Attributes.step "1"
+            , Html.Attributes.value (toString current)
+            , onNumberInput LsfChanged
+            ]
+            []
+        , Html.text (toString (round current) ++ "%")
         ]
 
 
@@ -238,6 +284,12 @@ pureUpdate msg model =
     case msg of
         AirspeedChanged airspeed ->
             { model | airspeed = airspeed }
+
+        HstChanged hst ->
+            { model | hst = hst }
+
+        LsfChanged lsf ->
+            { model | lsf = lsf }
 
 
 onNumberInput : (Float -> Msg) -> Attribute Msg
