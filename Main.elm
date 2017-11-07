@@ -2,8 +2,9 @@ module Main exposing (..)
 
 import Curve
 import Html exposing (Html)
+import Html.Attributes
+import Html.Events
 import Json.Decode as Decode
-import Mouse exposing (Position)
 import SubPath
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
@@ -12,31 +13,16 @@ import Vector2 exposing (Vec2)
 
 
 type alias Model =
-    { startPosition : Position
-    , startControl : Position
-    , endControl : Position
-    , endPosition : Position
-    , drag : Maybe Drag
+    { airspeed : Float
+    , dist : Float
+    , hst : Float
+    , lsf : Float
+    , turnsign : Float
     }
-
-
-type alias Drag =
-    { draggable : Draggable
-    , start : Position
-    , current : Position
-    }
-
-
-type Draggable
-    = StartControl
-    | EndControl
-    | EndPosition
 
 
 type Msg
-    = DragStart Draggable Position
-    | DragAt Draggable Position
-    | DragEnd Draggable Position
+    = AirspeedChanged Float
 
 
 c : Int
@@ -66,15 +52,10 @@ w =
 
 model : Model
 model =
-    { startPosition = Position (w // 2) h
-    , startControl = Position (w // 2) (h // 2)
-    , endControl = Position (w // 2 + w // 8) (h // 2 - h // 8)
-    , endPosition = Position (w // 2 - w // 8) (h // 4)
-    , drag = Nothing
-    }
+    { airspeed = 0.8, dist = 385, hst = -38, lsf = 24, turnsign = 1 }
 
 
-pathPoints : { a | turnsign : Float, dist : Float, hst : Float, lsf : Float, airspeed : Float } -> List (Vec2 Float)
+pathPoints : { a | turnsign : Float, dist : Float, hst : Float, lsf : Float, airspeed : Float } -> { points : List (Vec2 Float), endPosition : Vec2 Float }
 pathPoints { turnsign, dist, hst, lsf, airspeed } =
     let
         fadestart =
@@ -111,7 +92,7 @@ pathPoints { turnsign, dist, hst, lsf, airspeed } =
 
         loop { airspeed, vx, vy, x, y, points } =
             if airspeed <= impact then
-                points
+                { points = points, endPosition = ( x, y ) }
             else
                 let
                     newY =
@@ -147,83 +128,60 @@ pathPoints { turnsign, dist, hst, lsf, airspeed } =
         }
 
 
-posToString : Position -> String
-posToString { x, y } =
-    toString x ++ " " ++ toString y
-
-
 view : Model -> Html Msg
 view model =
     let
-        points =
-            pathPoints { airspeed = 0.8, dist = 435, hst = -1, lsf = 73, turnsign = 1 }
+        { points, endPosition } =
+            pathPoints model
     in
-    svg
-        [ viewBox ("0 0 " ++ toString w ++ " " ++ toString h)
-        , width (toString w)
-        , height (toString h)
-        ]
-        [ rect
-            [ width (toString w)
+    Html.div []
+        [ svg
+            [ viewBox ("0 0 " ++ toString w ++ " " ++ toString h)
+            , width (toString w)
             , height (toString h)
-            , x "0"
-            , y "0"
-            , fill "none"
-            , stroke "#DDDDDD"
-            , strokeWidth "1"
+            ]
+            [ rect
+                [ width (toString w)
+                , height (toString h)
+                , x "0"
+                , y "0"
+                , fill "none"
+                , stroke "#DDDDDD"
+                , strokeWidth "1"
+                ]
+                []
+            , distanceLines { until = 150, diff = 5 }
+            , hairline <| "M" ++ toString (w // 2) ++ " 0 V" ++ toString h
+            , SubPath.element (Curve.catmullRom 0.0 points)
+                [ fill "none"
+                , stroke "blue"
+                , strokeWidth "2"
+                ]
+            , case List.head points of
+                Just ( x, y ) ->
+                    dot { color = "blue", position = endPosition }
+
+                Nothing ->
+                    text ""
+            ]
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "0.5"
+            , Html.Attributes.max "1.2"
+            , Html.Attributes.step "0.01"
+            , Html.Attributes.value (toString model.airspeed)
+            , onNumberInput AirspeedChanged
             ]
             []
-        , distanceLine 25
-        , distanceLine 50
-        , distanceLine 75
-        , distanceLine 100
-        , distanceLine 125
-        , distanceLine 150
-        , hairline <| "M" ++ toString (w // 2) ++ " 0 V" ++ toString h
-
-        -- , bezierControl
-        --     { position = model.startPosition, control = model.startControl }
-        --     StartControl
-        -- , bezierControl { position = model.endPosition, control = model.endControl }
-        --     EndControl
-        -- , Svg.path
-        --     [ d <|
-        --         "M"
-        --             ++ posToString model.startPosition
-        --             ++ "C"
-        --             ++ posToString model.startControl
-        --             ++ ","
-        --             ++ posToString model.endControl
-        --             ++ ","
-        --             ++ posToString model.endPosition
-        --     , fill "none"
-        --     , stroke "blue"
-        --     , strokeWidth "1"
-        --     ]
-        --     []
-        , SubPath.element (Curve.catmullRom 0.0 points)
-            [ fill "none"
-            , stroke "red"
-            , strokeWidth "1"
-            ]
-
-        -- , dot { color = "blue", position = model.endPosition } EndPosition
+        , Html.text (toString (round (100 * model.airspeed)) ++ "%")
         ]
 
 
-bezierControl : { position : Position, control : Position } -> Draggable -> Svg Msg
-bezierControl { position, control } draggable =
-    g []
-        [ Svg.path
-            [ fill "none"
-            , stroke "red"
-            , strokeWidth "1"
-            , strokeOpacity "0.3"
-            , d <| "M" ++ posToString position ++ "L" ++ posToString control
-            ]
-            []
-        , dot { color = "red", position = control } draggable
-        ]
+distanceLines : { until : Int, diff : Int } -> Svg msg
+distanceLines { until, diff } =
+    List.range 0 (until // diff)
+        |> List.map (\i -> distanceLine (i * diff))
+        |> g []
 
 
 distanceLine : Int -> Svg msg
@@ -236,7 +194,7 @@ distanceLine dist =
         [ hairline <| "M0 " ++ toString px ++ "H" ++ toString w
         , text_
             [ x "10"
-            , y (toString (px + 10))
+            , y (toString px)
             , fontFamily "Arial"
             , fontSize "10"
             , fill "#AAAAAA"
@@ -255,14 +213,17 @@ hairline pathD =
         []
 
 
-dot : { color : String, position : Position } -> Draggable -> Svg Msg
-dot { color, position } draggable =
+dot : { color : String, position : Vec2 Float } -> Svg Msg
+dot { color, position } =
+    let
+        ( x, y ) =
+            position
+    in
     circle
         [ fill color
-        , cx (toString position.x)
-        , cy (toString position.y)
+        , cx (toString x)
+        , cy (toString y)
         , r "3"
-        , onMouseDown draggable
         ]
         []
 
@@ -275,44 +236,31 @@ update msg model =
 pureUpdate : Msg -> Model -> Model
 pureUpdate msg model =
     case msg of
-        DragStart draggable xy ->
-            { model | drag = Just (Drag draggable xy xy) }
-
-        DragAt draggable xy ->
-            { model | drag = Maybe.map (\{ start } -> Drag draggable start xy) model.drag }
-                |> updateDraggable draggable xy
-
-        DragEnd draggable xy ->
-            { model | drag = Nothing }
-                |> updateDraggable draggable xy
+        AirspeedChanged airspeed ->
+            { model | airspeed = airspeed }
 
 
-updateDraggable : Draggable -> Position -> Model -> Model
-updateDraggable draggable position model =
-    case draggable of
-        StartControl ->
-            { model | startControl = position }
+onNumberInput : (Float -> Msg) -> Attribute Msg
+onNumberInput tagger =
+    Html.Events.onInput
+        (\value ->
+            case String.toFloat value of
+                Ok number ->
+                    tagger number
 
-        EndControl ->
-            { model | endControl = position }
-
-        EndPosition ->
-            { model | endPosition = position }
+                Err err ->
+                    Debug.crash "not a number" err
+        )
 
 
-onMouseDown : Draggable -> Attribute Msg
-onMouseDown draggable =
-    on "mousedown" (Decode.map (DragStart draggable) Mouse.position)
+
+-- Decode.map tagger (Decode.at [ "target", "value" ] Decode.float)
+--     |> Html.Events.on "input"
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model.drag of
-        Nothing ->
-            Sub.none
-
-        Just { draggable } ->
-            Sub.batch [ Mouse.moves (DragAt draggable), Mouse.ups (DragEnd draggable) ]
+    Sub.none
 
 
 main : Program Never Model Msg
