@@ -195,11 +195,11 @@ sliderForHst current =
         [ Html.text "High speed Turn"
         , Html.input
             [ Html.Attributes.type_ "range"
-            , Html.Attributes.min "-100"
+            , Html.Attributes.min "-15"
             , Html.Attributes.max "100"
             , Html.Attributes.step "1"
-            , Html.Attributes.value (toString current)
-            , onNumberInput HstChanged
+            , Html.Attributes.value (toString (-1 * current))
+            , onNumberInput (\n -> HstChanged (-1 * n))
             ]
             []
         , Html.text (toString (round current) ++ "%")
