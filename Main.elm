@@ -3,6 +3,8 @@ module Main exposing (..)
 import Constants exposing (..)
 import Data exposing (DiscData)
 import Html exposing (Html, table, td, th, tr)
+import Html.Attributes
+import Html.Events
 import Json.Decode as Decode
 import Mouse exposing (Position)
 import Svg exposing (..)
@@ -37,6 +39,20 @@ type alias Model =
     , endPosition : Position
     , drag : Maybe Drag
     , data : List DiscData
+    , currentDisc : Maybe DiscData
+    , savedRows : List RowData
+    }
+
+
+type alias RowData =
+    { startControl : Position
+    , endControl : Position
+    , endPosition : Position
+    , model : String
+    , speed : Float
+    , glide : Float
+    , turn : Float
+    , fade : Float
     }
 
 
@@ -57,6 +73,8 @@ type Msg
     = DragStart Draggable Position
     | DragAt Draggable Position
     | DragEnd Draggable Position
+    | SelectDisc DiscData
+    | Save
 
 
 model : Model
@@ -66,7 +84,9 @@ model =
     , endControl = Position (w // 2 + w // 8) (h // 2 - h // 8)
     , endPosition = Position (w // 2 - w // 8) (h // 4)
     , drag = Nothing
-    , data = Data.parseDiscData Data.prodigyJson |> Result.withDefault []
+    , data = List.sortBy .model Data.prodigy
+    , currentDisc = List.head Data.prodigy
+    , savedRows = []
     }
 
 
@@ -89,6 +109,29 @@ pureUpdate msg model =
             { model | drag = Nothing }
                 |> updateDraggable draggable xy
 
+        SelectDisc disc ->
+            { model | currentDisc = Just disc }
+
+        Save ->
+            case model.currentDisc of
+                Just disc ->
+                    { model
+                        | savedRows =
+                            { startControl = model.startControl
+                            , endControl = model.endControl
+                            , endPosition = model.endPosition
+                            , model = disc.model
+                            , speed = disc.speed
+                            , glide = disc.glide
+                            , turn = disc.turn
+                            , fade = disc.fade
+                            }
+                                :: model.savedRows
+                    }
+
+                Nothing ->
+                    Debug.crash "No disc selected"
+
 
 updateDraggable : Draggable -> Position -> Model -> Model
 updateDraggable draggable position model =
@@ -105,7 +148,7 @@ updateDraggable draggable position model =
 
 view : Model -> Html Msg
 view model =
-    Html.div []
+    Html.div [ Html.Attributes.style [ ( "display", "flex" ), ( "flex-direction", "row" ) ] ]
         [ svg
             [ viewBox ("0 0 " ++ toString w ++ " " ++ toString h)
             , width (toString w)
@@ -152,9 +195,13 @@ view model =
                 ]
                 []
             , dot { color = "blue", position = model.endPosition } EndPosition
-            , scrapedPoints model.data
+            , scrapedPoints model.currentDisc
             ]
-        , dataTable model
+        , Html.div []
+            [ discSelect model.data
+            , Html.button [ Html.Events.onClick Save ] [ Html.text "Save" ]
+            , dataTable model.savedRows
+            ]
         ]
 
 
@@ -162,19 +209,25 @@ view model =
 -- View helpers
 
 
-scrapedPoints : List DiscData -> Svg msg
-scrapedPoints discDataList =
-    discDataList
-        |> List.head
+discSelect : List DiscData -> Html Msg
+discSelect discs =
+    discs
+        |> List.map (\disc -> Html.button [ Html.Events.onClick (SelectDisc disc) ] [ Html.text disc.model ])
+        |> Html.div []
+
+
+scrapedPoints : Maybe DiscData -> Svg msg
+scrapedPoints discData =
+    discData
         |> Maybe.map
             (\disc ->
                 List.indexedMap
                     (\y x ->
                         circle
-                            [ fill "rgba(0,255,0,0.2)"
+                            [ fill "rgba(0,0,0,0.2)"
                             , cx (toString (x + toFloat w / 2))
                             , cy (toString (h - y))
-                            , r "1"
+                            , r "2"
                             ]
                             []
                     )
@@ -184,38 +237,51 @@ scrapedPoints discDataList =
         |> Maybe.withDefault (text "")
 
 
-dataTable : { a | startControl : Position, endControl : Position, endPosition : Position } -> Html msg
-dataTable { startControl, endControl, endPosition } =
+dataTable : List RowData -> Html msg
+dataTable rows =
     let
         cell pos =
-            td [] [ Html.text (posToString pos) ]
+            td [] [ Html.text (posToRelativeString pos) ]
+
+        row { model, speed, glide, turn, fade, startControl, endControl, endPosition } =
+            tr []
+                [ td [] [ Html.text model ]
+                , td [] [ Html.text (toString speed) ]
+                , td [] [ Html.text (toString glide) ]
+                , td [] [ Html.text (toString turn) ]
+                , td [] [ Html.text (toString fade) ]
+                , cell startControl
+                , cell endControl
+                , cell endPosition
+                ]
     in
-    table []
+    table [] <|
         [ tr []
-            [ th [] [ Html.text "start control" ]
+            [ th [] [ Html.text "model" ]
+            , th [] [ Html.text "speed" ]
+            , th [] [ Html.text "glide" ]
+            , th [] [ Html.text "turn" ]
+            , th [] [ Html.text "fade" ]
+            , th [] [ Html.text "start control" ]
             , th [] [ Html.text "end control" ]
             , th [] [ Html.text "end position" ]
             ]
-        , tr []
-            [ cell startControl
-            , cell endControl
-            , cell endPosition
-            ]
         ]
+            ++ List.map row rows
 
 
 distanceLines : Svg msg
 distanceLines =
     List.range 1 6
-        |> List.map (\n -> distanceLine (25 * n))
+        |> List.map (\n -> distanceLine (25 * toFloat n))
         |> g []
 
 
-distanceLine : Int -> Svg msg
+distanceLine : Float -> Svg msg
 distanceLine dist =
     let
         px =
-            h - dist * c
+            toFloat h - dist * c
     in
     g []
         [ hairline <| "M0 " ++ toString px ++ "H" ++ toString w
@@ -277,3 +343,8 @@ onMouseDown draggable =
 posToString : Position -> String
 posToString { x, y } =
     toString x ++ " " ++ toString y
+
+
+posToRelativeString : Position -> String
+posToRelativeString { x, y } =
+    toString (toFloat x / toFloat w) ++ " " ++ toString (toFloat (h - y) / toFloat h)

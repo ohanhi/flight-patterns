@@ -1,9 +1,9 @@
 module Constants exposing (..)
 
 
-c : Int
+c : Float
 c =
-    4
+    2.9
 
 
 h : Int
