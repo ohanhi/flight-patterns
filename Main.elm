@@ -25,6 +25,7 @@ type Msg
     = AirspeedChanged Float
     | HstChanged Float
     | LsfChanged Float
+    | DistanceChanged Float
 
 
 c : Int
@@ -69,11 +70,8 @@ pathPoints { turnsign, dist, hst, lsf, airspeed } =
         turnend =
             0.8 - airspeed ^ 2 * 0.36
 
-        ht =
-            yscale * dist
-
         deltav =
-            yscale / ht
+            yscale / (yscale * dist)
 
         -- calculate effective HST and LSF
         op =
@@ -159,23 +157,36 @@ view model =
                 , stroke "blue"
                 , strokeWidth "2"
                 ]
-            , case List.head points of
-                Just ( x, y ) ->
-                    dot { color = "blue", position = endPosition }
-
-                Nothing ->
-                    text ""
+            , dot { color = "blue", position = endPosition }
             ]
-        , sliderForAirspeed model.airspeed
+        , sliderForDistance model.dist
         , sliderForHst model.hst
         , sliderForLsf model.lsf
+        , sliderForAirspeed model.airspeed
+        ]
+
+
+sliderForDistance : Float -> Html Msg
+sliderForDistance current =
+    Html.div []
+        [ Html.text "Distance"
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "100"
+            , Html.Attributes.max "500"
+            , Html.Attributes.step "10"
+            , Html.Attributes.value (toString current)
+            , onNumberInput DistanceChanged
+            ]
+            []
+        , Html.text (toString (round current) ++ "ft")
         ]
 
 
 sliderForAirspeed : Float -> Html Msg
 sliderForAirspeed current =
     Html.div []
-        [ Html.text "Airspeed"
+        [ Html.text "Throw speed relative to \"disc speed\""
         , Html.input
             [ Html.Attributes.type_ "range"
             , Html.Attributes.min "0.5"
@@ -290,6 +301,9 @@ pureUpdate msg model =
 
         LsfChanged lsf ->
             { model | lsf = lsf }
+
+        DistanceChanged dist ->
+            { model | dist = dist }
 
 
 onNumberInput : (Float -> Msg) -> Attribute Msg
