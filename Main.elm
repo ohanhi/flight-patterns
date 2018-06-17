@@ -1,44 +1,71 @@
 module Main exposing (..)
 
+import Curve
 import Html exposing (Html)
+import Html.Attributes
+import Html.Events
 import Json.Decode as Decode
-import Mouse exposing (Position)
+import SubPath
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Svg.Events exposing (on)
 
 
+type alias Vec2 =
+    ( Float, Float )
+
+
+type Feet
+    = Feet Float
+
+
+type Meters
+    = Meters Float
+
+
+toMeters : Feet -> Meters
+toMeters (Feet ft) =
+    Meters (ft * 0.3048)
+
+
+toFeet : Meters -> Feet
+toFeet (Meters m) =
+    Feet (m / 0.3048)
+
+
 type alias Model =
-    { startPosition : Position
-    , startControl : Position
-    , endControl : Position
-    , endPosition : Position
-    , drag : Maybe Drag
+    { throwerMaxDist : Meters
+    , dist : Meters
+    , hst : Float
+    , lsf : Float
+    , turnsign : Float
+    , discSelected : PresetDiscType
+    , throwerSelected : PresetThrower
     }
-
-
-type alias Drag =
-    { draggable : Draggable
-    , start : Position
-    , current : Position
-    }
-
-
-type Draggable
-    = StartControl
-    | EndControl
-    | EndPosition
 
 
 type Msg
-    = DragStart Draggable Position
-    | DragAt Draggable Position
-    | DragEnd Draggable Position
+    = MaxDistanceChanged Meters
+    | HstChanged Float
+    | LsfChanged Float
+    | DistanceChanged Meters
+    | PresetThrowerSelected PresetThrower
+    | PresetDiscSelected PresetDiscType
 
 
-c : Int
+c : Float
 c =
-    4
+    toFloat h / 150
+
+
+xscale : Float
+xscale =
+    c * 0.2
+
+
+yscale : Float
+yscale =
+    c * 0.3
 
 
 h : Int
@@ -53,93 +80,233 @@ w =
 
 model : Model
 model =
-    { startPosition = Position (w // 2) h
-    , startControl = Position (w // 2) (h // 2)
-    , endControl = Position (w // 2 + w // 8) (h // 2 - h // 8)
-    , endPosition = Position (w // 2 - w // 8) (h // 4)
-    , drag = Nothing
+    { throwerMaxDist = Meters 70
+    , dist = Meters 75
+    , hst = -38
+    , lsf = 24
+    , turnsign = 1
+    , discSelected = Midrange
+    , throwerSelected = Recreational
     }
 
 
-posToString : Position -> String
-posToString { x, y } =
-    toString x ++ " " ++ toString y
+type PresetThrower
+    = Beginner
+    | Recreational
+    | Advanced
+    | Pro
+
+
+type PresetDiscType
+    = Putter
+    | Midrange
+    | FairwayDriverStable
+    | FairwayDriverUnderstable
+    | DistanceDriverStable
+    | DistanceDriverUnderstable
+
+
+type alias DiscData =
+    { name : String
+    , dist : Meters
+    , hst : Float
+    , lsf : Float
+    , speed : Int
+    , glide : Int
+    , turn : Int
+    , fade : Int
+    }
+
+
+pathPoints : Model -> { points : List Vec2, endPosition : Vec2 }
+pathPoints { turnsign, dist, hst, lsf, throwerMaxDist } =
+    let
+        toCoords =
+            toPathCoordinates turnsign
+
+        (Meters meters) =
+            dist
+
+        turnStartY =
+            meters * 0.2
+
+        turnEndY =
+            meters * 0.85
+
+        end =
+            ( hst + lsf, meters )
+    in
+    { points =
+        [ ( 0, 0 )
+        , ( 0, turnStartY )
+        , ( hst, turnEndY )
+        , end
+        ]
+            |> List.map toCoords
+    , endPosition = toCoords end
+    }
+
+
+toPathCoordinates : Float -> Vec2 -> Vec2
+toPathCoordinates turnsign ( deviation, distance ) =
+    ( negate turnsign * xscale * deviation + toFloat w / 2
+    , toFloat h - (c * distance)
+    )
 
 
 view : Model -> Html Msg
 view model =
-    svg
-        [ viewBox ("0 0 " ++ toString w ++ " " ++ toString h)
-        , width (toString w)
-        , height (toString h)
-        ]
-        [ rect
-            [ width (toString w)
+    let
+        { points, endPosition } =
+            pathPoints model
+    in
+    Html.div []
+        [ svg
+            [ viewBox ("0 0 " ++ toString w ++ " " ++ toString h)
+            , width (toString w)
             , height (toString h)
-            , x "0"
-            , y "0"
-            , fill "none"
-            , stroke "#DDDDDD"
-            , strokeWidth "1"
             ]
-            []
-        , distanceLine 25
-        , distanceLine 50
-        , distanceLine 75
-        , distanceLine 100
-        , distanceLine 125
-        , distanceLine 150
-        , hairline <| "M" ++ toString (w // 2) ++ " 0 V" ++ toString h
-        , bezierControl
-            { position = model.startPosition, control = model.startControl }
-            StartControl
-        , bezierControl { position = model.endPosition, control = model.endControl }
-            EndControl
-        , Svg.path
-            [ d <|
-                "M"
-                    ++ posToString model.startPosition
-                    ++ "C"
-                    ++ posToString model.startControl
-                    ++ ","
-                    ++ posToString model.endControl
-                    ++ ","
-                    ++ posToString model.endPosition
-            , fill "none"
-            , stroke "blue"
-            , strokeWidth "1"
+            [ rect
+                [ width (toString w)
+                , height (toString h)
+                , x "0"
+                , y "0"
+                , fill "none"
+                , stroke "#DDDDDD"
+                , strokeWidth "1"
+                ]
+                []
+            , distanceLines { until = 150, diff = 25 }
+            , hairline <| "M" ++ toString (w // 2) ++ " 0 V" ++ toString h
+            , SubPath.element (Curve.catmullRom 1.0 points)
+                [ fill "none"
+                , stroke "blue"
+                , strokeWidth "2"
+                ]
+            , dot { color = "blue", position = endPosition }
             ]
-            []
-        , dot { color = "blue", position = model.endPosition } EndPosition
+        , sliderForDistance model.dist
+        , sliderForHst model.hst
+        , sliderForLsf model.lsf
+        , sliderForMaxDistance model.throwerMaxDist
+        , throwerSelectButton model Beginner
+        , throwerSelectButton model Recreational
+        , throwerSelectButton model Advanced
+        , throwerSelectButton model Pro
+        , Html.br [] []
+        , discSelectButton model Putter
+        , discSelectButton model Midrange
+        , discSelectButton model FairwayDriverUnderstable
+        , discSelectButton model FairwayDriverStable
+        , discSelectButton model DistanceDriverUnderstable
+        , discSelectButton model DistanceDriverStable
         ]
 
 
-bezierControl : { position : Position, control : Position } -> Draggable -> Svg Msg
-bezierControl { position, control } draggable =
-    g []
-        [ Svg.path
-            [ fill "none"
-            , stroke "red"
-            , strokeWidth "1"
-            , strokeOpacity "0.3"
-            , d <| "M" ++ posToString position ++ "L" ++ posToString control
+throwerSelectButton : { a | throwerSelected : PresetThrower } -> PresetThrower -> Html Msg
+throwerSelectButton { throwerSelected } presetThrower =
+    Html.button
+        [ Html.Attributes.disabled (throwerSelected == presetThrower)
+        , Html.Events.onClick (PresetThrowerSelected presetThrower)
+        ]
+        [ Html.text (toString presetThrower) ]
+
+
+discSelectButton : { a | discSelected : PresetDiscType } -> PresetDiscType -> Html Msg
+discSelectButton { discSelected } presetDiscType =
+    Html.button
+        [ Html.Attributes.disabled (discSelected == presetDiscType)
+        , Html.Events.onClick (PresetDiscSelected presetDiscType)
+        ]
+        [ Html.text (toString presetDiscType) ]
+
+
+sliderForDistance : Meters -> Html Msg
+sliderForDistance (Meters current) =
+    Html.div []
+        [ Html.text "Disc distance"
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "50"
+            , Html.Attributes.max "150"
+            , Html.Attributes.step "5"
+            , Html.Attributes.value (toString current)
+            , onNumberInput (DistanceChanged << Meters)
             ]
             []
-        , dot { color = "red", position = control } draggable
+        , Html.text (toString (round current) ++ "m")
         ]
+
+
+sliderForMaxDistance : Meters -> Html Msg
+sliderForMaxDistance (Meters current) =
+    Html.div []
+        [ Html.text "Thrower maximum distance"
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "50"
+            , Html.Attributes.max "150"
+            , Html.Attributes.step "5"
+            , Html.Attributes.value (toString current)
+            , onNumberInput (MaxDistanceChanged << Meters)
+            ]
+            []
+        , Html.text (toString (round current) ++ "m")
+        ]
+
+
+sliderForHst : Float -> Html Msg
+sliderForHst current =
+    Html.div []
+        [ Html.text "High speed Turn"
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "-15"
+            , Html.Attributes.max "100"
+            , Html.Attributes.step "1"
+            , Html.Attributes.value (toString (-1 * current))
+            , onNumberInput (\n -> HstChanged (-1 * n))
+            ]
+            []
+        , Html.text (toString (round current) ++ "%")
+        ]
+
+
+sliderForLsf : Float -> Html Msg
+sliderForLsf current =
+    Html.div []
+        [ Html.text "Low speed Fade"
+        , Html.input
+            [ Html.Attributes.type_ "range"
+            , Html.Attributes.min "0"
+            , Html.Attributes.max "100"
+            , Html.Attributes.step "1"
+            , Html.Attributes.value (toString current)
+            , onNumberInput LsfChanged
+            ]
+            []
+        , Html.text (toString (round current) ++ "%")
+        ]
+
+
+distanceLines : { until : Int, diff : Int } -> Svg msg
+distanceLines { until, diff } =
+    List.range 0 (until // diff)
+        |> List.map (\i -> distanceLine (i * diff))
+        |> g []
 
 
 distanceLine : Int -> Svg msg
 distanceLine dist =
     let
         px =
-            h - dist * c
+            round (toFloat h - toFloat dist * c)
     in
     g []
         [ hairline <| "M0 " ++ toString px ++ "H" ++ toString w
         , text_
             [ x "10"
-            , y (toString (px + 10))
+            , y (toString px)
             , fontFamily "Arial"
             , fontSize "10"
             , fill "#AAAAAA"
@@ -158,14 +325,17 @@ hairline pathD =
         []
 
 
-dot : { color : String, position : Position } -> Draggable -> Svg Msg
-dot { color, position } draggable =
+dot : { color : String, position : Vec2 } -> Svg Msg
+dot { color, position } =
+    let
+        ( x, y ) =
+            position
+    in
     circle
         [ fill color
-        , cx (toString position.x)
-        , cy (toString position.y)
+        , cx (toString x)
+        , cy (toString y)
         , r "3"
-        , onMouseDown draggable
         ]
         []
 
@@ -178,44 +348,48 @@ update msg model =
 pureUpdate : Msg -> Model -> Model
 pureUpdate msg model =
     case msg of
-        DragStart draggable xy ->
-            { model | drag = Just (Drag draggable xy xy) }
+        MaxDistanceChanged throwerMaxDist ->
+            { model | throwerMaxDist = throwerMaxDist }
 
-        DragAt draggable xy ->
-            { model | drag = Maybe.map (\{ start } -> Drag draggable start xy) model.drag }
-                |> updateDraggable draggable xy
+        HstChanged hst ->
+            { model | hst = hst }
 
-        DragEnd draggable xy ->
-            { model | drag = Nothing }
-                |> updateDraggable draggable xy
+        LsfChanged lsf ->
+            { model | lsf = lsf }
+
+        DistanceChanged dist ->
+            { model | dist = dist }
+
+        PresetDiscSelected presetDisc ->
+            let
+                discData =
+                    getDiscData presetDisc
+            in
+            { model
+                | discSelected = presetDisc
+                , hst = discData.hst
+                , lsf = discData.lsf
+                , dist = discData.dist
+            }
+
+        PresetThrowerSelected presetThrower ->
+            { model
+                | throwerSelected = presetThrower
+                , throwerMaxDist = getMaxDistance presetThrower
+            }
 
 
-updateDraggable : Draggable -> Position -> Model -> Model
-updateDraggable draggable position model =
-    case draggable of
-        StartControl ->
-            { model | startControl = position }
+onNumberInput : (Float -> Msg) -> Attribute Msg
+onNumberInput tagger =
+    Html.Events.onInput
+        (\value ->
+            case String.toFloat value of
+                Ok number ->
+                    tagger number
 
-        EndControl ->
-            { model | endControl = position }
-
-        EndPosition ->
-            { model | endPosition = position }
-
-
-onMouseDown : Draggable -> Attribute Msg
-onMouseDown draggable =
-    on "mousedown" (Decode.map (DragStart draggable) Mouse.position)
-
-
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    case model.drag of
-        Nothing ->
-            Sub.none
-
-        Just { draggable } ->
-            Sub.batch [ Mouse.moves (DragAt draggable), Mouse.ups (DragEnd draggable) ]
+                Err err ->
+                    Debug.crash "not a number" err
+        )
 
 
 main : Program Never Model Msg
@@ -224,5 +398,95 @@ main =
         { init = model ! []
         , view = view
         , update = update
-        , subscriptions = subscriptions
+        , subscriptions = \_ -> Sub.none
         }
+
+
+
+-- DATA
+
+
+getMaxDistance : PresetThrower -> Meters
+getMaxDistance thrower =
+    case thrower of
+        Beginner ->
+            Meters 50
+
+        Recreational ->
+            Meters 70
+
+        Advanced ->
+            Meters 120
+
+        Pro ->
+            Meters 150
+
+
+getDiscData : PresetDiscType -> DiscData
+getDiscData presetDiscType =
+    case presetDiscType of
+        Putter ->
+            { name = "Discmania P2"
+            , dist = toMeters (Feet 248)
+            , hst = 0
+            , lsf = 20
+            , speed = 2
+            , glide = 3
+            , turn = 0
+            , fade = 1
+            }
+
+        Midrange ->
+            { name = "Discmania MD2"
+            , dist = toMeters (Feet 286)
+            , hst = -6
+            , lsf = 32
+            , speed = 4
+            , glide = 5
+            , turn = 0
+            , fade = 2
+            }
+
+        FairwayDriverStable ->
+            { name = "Discmania FD2"
+            , dist = toMeters (Feet 331)
+            , hst = 0
+            , lsf = 44
+            , speed = 7
+            , glide = 4
+            , turn = 0
+            , fade = 2
+            }
+
+        FairwayDriverUnderstable ->
+            { name = "Discmania FD"
+            , dist = toMeters (Feet 362)
+            , hst = -19
+            , lsf = 28
+            , speed = 7
+            , glide = 6
+            , turn = -1
+            , fade = 1
+            }
+
+        DistanceDriverStable ->
+            { name = "Discmania DD"
+            , dist = toMeters (Feet 418)
+            , hst = -2
+            , lsf = 46
+            , speed = 11
+            , glide = 5
+            , turn = 0
+            , fade = 2
+            }
+
+        DistanceDriverUnderstable ->
+            { name = "Discmania TD"
+            , dist = toMeters (Feet 385)
+            , hst = -38
+            , lsf = 24
+            , speed = 10
+            , glide = 5
+            , turn = -2
+            , fade = 1
+            }
